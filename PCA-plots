@@ -1,0 +1,173 @@
+#libraries to load
+library(circlize)
+library(data.table)
+library(dplyr)
+library(foreign)
+library(RColorBrewer)
+library(ggbeeswarm)
+library(ggfortify)
+library(ggplot2)
+library(ggpubr)
+library(ggrepel)
+library(ggsignif)
+library(gtsummary)
+library(lubridate)
+library(readr)
+library(reshape2)
+library(rstatix)
+library(scales)
+library(stringr)
+library(tidyverse)
+library(viridis)
+
+
+#######################################Part 1: QC
+#set directory
+setwd("C:/Users/delbarri/Google Drive/Senior tech/Data/5 - Analysis in R")
+
+#read file and assign it a name
+megatable <-read_csv("CITAmegatablev2.csv")
+
+######################## After doing the PCAs, we have seen that sample 30 is a massive outlier in the PCAs. Let's delete it here:
+#megatable = filter(megatable, !(X1 %in% c("30")))
+
+Control <- megatable %>% 
+filter(Sample_type%in%c("Control"))
+
+Samples <- megatable %>% 
+  filter(!Sample_type%in%c("Control"))
+
+
+
+
+#######################################Part 2: PCA controls
+#check where the metadata is
+colnames(megatable)
+
+Controls_num<-Control[c(52:206)]
+
+Controls_num$X1<-Control$X1
+
+## let's see the problematic """"parameters""""" that have a lots of NAs
+
+#first lets add up the number of na values in every column and create a table showing them:
+Controls_NA <- data.frame(colSums(is.na(Controls_num))) 
+names(Controls_NA)[1] <- "NA_number"   #change name of the first column
+Controls_NA <- Controls_NA %>% arrange(desc(NA_number))   #arrange by NA number
+Controls_NA$perc <- ((Controls_NA$NA_number/156)*100) #see the % of cells that are NA in each parameter
+
+#most parameters don't have NA so it's worth just delete any parameter that has a NA
+Controls_num.na<- Controls_num[ , apply(Controls_num, 2, function(x) !any(is.na(x)))]
+
+#we have gone from 156 to 147 variables but kept all samples
+
+##### Time to PCA
+
+#first, we need to exclude the last column which is the sampleID
+ControlsPCA<-prcomp(Controls_num.na[c(1:146)],scale=F)
+
+# now lets tie the PCA with the PCA values 
+toplot<-cbind(Controls_num.na,ControlsPCA$x)
+
+#now that we have the patient id we add back in the meta data (and delete the duplicated columns)
+toplot<-merge(toplot,Control,by="X1")
+toplot <-toplot[, -grep(".x", colnames(toplot))] #delete the duplicates
+
+
+ggplot(toplot,aes(x=PC1,y=PC2,fill=`Receptors`))+
+  geom_point(shape=21,size=5)+
+  ggtitle("28 samples, 147 variables")+
+  theme_bw()+
+  scale_fill_manual(values=c("Control2"="#C93312",
+                             "Control3"="#FAEFD1"))+
+  xlim(-30000,20000)+
+  ylim(-15000,15000)
+  
+ggsave("PCA controls only.pdf", width = 8,
+       height = 6,)
+dev.off()
+
+
+
+#######################################Part 3: PCA samples
+
+######################## After doing the PCAs, we have seen that sample 30 is a massive outlier in the PCAs. Let's delete it here:
+
+Samples = filter(Samples, !(X1 %in% c("30")))
+
+Samples_num<-Samples[c(52:206)]
+
+Samples_num$X1<-Samples$X1
+
+## let's see the problematic """"parameters""""" that have a lots of NAs
+
+#first lets add up the number of na values in every column and create a table showing them:
+Samples_NA <- data.frame(colSums(is.na(Samples_num))) 
+names(Samples_NA)[1] <- "NA_number"   #change name of the first column
+Samples_NA <- Samples_NA %>% arrange(desc(NA_number))   #arrange by NA number
+Samples_NA$perc <- ((Samples_NA$NA_number/156)*100) #see the % of cells that are NA in each parameter
+
+#here unlike controls here all samples have at least one NA, but most are less than 10
+
+colstoinclude1 = colSums(is.na(Samples_num)) <11
+colstoinclude2 = colSums(is.na(Samples_num)) <5
+colstoinclude3 = colSums(is.na(Samples_num)) <4
+Samples_num1<-Samples_num[ , which(colstoinclude1)]
+Samples_num2<-Samples_num[ , which(colstoinclude2)]
+Samples_num3<-Samples_num[ , which(colstoinclude3)]
+
+#now let us delete the samples that don't have a complete dataset. The more parameters, the more likely one will have an NA so we will end up with less samples.
+
+Samples_num.na1<-na.omit(Samples_num1)
+Samples_num.na2<-na.omit(Samples_num2)
+Samples_num.na3<-na.omit(Samples_num3)
+
+#we have gone from 156 to 147 variables but kept all samples
+
+##### Time to PCA
+
+#first, we need to exclude the last column which is the sampleID
+SamplesPCA1<-prcomp(Samples_num.na1[c(1:144)],scale=F)
+SamplesPCA2<-prcomp(Samples_num.na2[c(1:118)],scale=F)
+SamplesPCA3<-prcomp(Samples_num.na3[c(1:75)],scale=F)
+
+
+# now lets tie the PCA with the PCA values 
+toplot1<-cbind(Samples_num.na1,SamplesPCA1$x)
+toplot2<-cbind(Samples_num.na2,SamplesPCA2$x)
+toplot3<-cbind(Samples_num.na3,SamplesPCA3$x)
+
+#now that we have the patient id we add back in the meta data (and delete the duplicated columns)
+toplot1<-merge(toplot1,Samples,by="X1")
+toplot1 <-toplot1[, -grep(".x", colnames(toplot1))] #delete the duplicates
+toplot2<-merge(toplot2,Samples,by="X1")
+toplot2 <-toplot2[, -grep(".x", colnames(toplot2))] #delete the duplicates
+toplot3<-merge(toplot3,Samples,by="X1")
+toplot3 <-toplot3[, -grep(".x", colnames(toplot3))] #delete the duplicates
+
+ggplot(toplot1,aes(x=PC1,y=PC2,fill=`Receptors`))+
+  geom_point(shape=21,size=5)+
+  ggtitle("99 samples, 145 variables")+
+  theme_bw()
+
+ggplot(toplot2,aes(x=PC1,y=PC2,fill=`Receptors`))+
+  geom_point(shape=21,size=5)+
+  ggtitle("104 samples, 119 variables")+
+  theme_bw()
+
+ggplot(toplot3,aes(x=PC1,y=PC2,fill=`Date`))+
+  geom_point(shape=21,size=5)+
+  ggtitle("118 samples, 76 variables")+
+  theme_bw()
+
+#they all look pretty much the same
+colnames(Samples)
+
+ggplot(toplot1,aes(x=PC6,y=PC2,fill=`Date`))+
+  geom_point(shape=21,size=5)+
+  ggtitle("99 samples, 145 variables")+
+  theme_bw()
+
+ggsave("PCA Samples only colour by date.pdf", width = 8,
+       height = 6,)
+dev.off()
